@@ -16,11 +16,12 @@ load_dotenv()
 
 if __name__ == "__main__":
     args, cfg = parse_args_and_set_config(__C)
+    pp = PP(indent=4)
+    pp.pprint(os.environ)
 
     model = PLModel(cfg)
     # Prints should be done after the init log
     model.init_log(vars(args))
-    pp = PP(indent=4)
     pp.pprint(vars(args))
     pp.pprint(cfg)
     loggers, ckpt_callback = model.make_lightning_loggers_ckpt()
