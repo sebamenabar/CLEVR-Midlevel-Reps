@@ -11,7 +11,7 @@ from datetime import datetime as dt
 from pytorch_lightning.utilities.distributed import rank_zero_only
 import pytorch_lightning as pl
 
-from config import mkdir_p
+from base_config import mkdir_p
 
 _plt = None
 
@@ -88,6 +88,10 @@ class BasePLModel(pl.LightningModule):
         if self.cfg.logcomet:
             self.comet_logger.experiment.log_asset(osp.join(self.exp_dir, "cfg.json"))
             self.comet_logger.experiment.log_asset(osp.join(self.exp_dir, "cfg.yml"))
+            if os.path.exists(osp.join(self.exp_dir, "args.json")):
+                self.comet_logger.experiment.log_asset(
+                    osp.join(self.exp_dir, "args.json")
+                )
 
     @rank_zero_only
     def log_figure(self, figure, name, step=None, close=True):
@@ -109,13 +113,15 @@ class BasePLModel(pl.LightningModule):
             plt = _plt
             plt.close(figure)
 
-    def make_lightning_loggers_ckpt(self, ckpt_callback_kwargs=dict(
+    def make_lightning_loggers_ckpt(
+        self,
+        ckpt_callback_kwargs=dict(
             # filepath=osp.join(self.exp_dir, "checkpoints/"),
             monitor="val_loss",
             verbose=True,
             save_top_k=2,
-
-    )):
+        ),
+    ):
         loggers = [pl.loggers.TensorBoardLogger(save_dir=self.exp_dir, name="",)]
         if self.cfg.logcomet:
             comet_logger = pl.loggers.CometLogger(
@@ -127,7 +133,7 @@ class BasePLModel(pl.LightningModule):
             loggers.append(comet_logger)
 
         default_ckpt_callback_kwargs = {
-            'filepath': osp.join(self.exp_dir, "checkpoints/"),
+            "filepath": osp.join(self.exp_dir, "checkpoints/"),
         }
         default_ckpt_callback_kwargs.update(ckpt_callback_kwargs)
         ckpt_callback = pl.callbacks.model_checkpoint.ModelCheckpoint(
@@ -135,9 +141,8 @@ class BasePLModel(pl.LightningModule):
         )
         return loggers, ckpt_callback
 
-
     @rank_zero_only
-    def init_log(self):
+    def init_log(self, args=None):
         now = dt.now(tz.tzlocal())
         now = now.strftime("%m-%d-%Y-%H-%M-%S")
         log_dir = self.cfg.exp_name
@@ -169,6 +174,9 @@ class BasePLModel(pl.LightningModule):
             json.dump(self.cfg, f, indent=4)
         with open(osp.join(self.exp_dir, "cfg.yml"), "w") as f:
             yaml.dump(json.loads(json.dumps(self.cfg)), f, indent=4)
+        if args is not None:
+            with open(osp.join(self.exp_dir, "args.json"), "w") as f:
+                json.dump(args, f, indent=4)
 
         # print(exp_dir)
 
