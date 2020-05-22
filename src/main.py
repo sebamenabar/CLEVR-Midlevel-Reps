@@ -17,7 +17,6 @@ load_dotenv()
 if __name__ == "__main__":
     args, cfg = parse_args_and_set_config(__C)
     pp = PP(indent=4)
-    pp.pprint(os.environ)
 
     model = PLModel(cfg)
     # Prints should be done after the init log
