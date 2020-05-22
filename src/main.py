@@ -1,4 +1,5 @@
 import os
+from pprint import PrettyPrinter as PP
 
 from dotenv import load_dotenv
 from easydict import EasyDict as edict
@@ -17,7 +18,11 @@ if __name__ == "__main__":
     args, cfg = parse_args_and_set_config(__C)
 
     model = PLModel(cfg)
+    # Prints should be done after the init log
     model.init_log(vars(args))
+    pp = PP(indent=4)
+    pp.pprint(vars(args))
+    pp.pprint(cfg)
     loggers, ckpt_callback = model.make_lightning_loggers_ckpt()
     trainer = pl.Trainer.from_argparse_args(
         args,
