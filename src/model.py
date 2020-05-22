@@ -226,5 +226,6 @@ class PLModel(BasePLModel):
         return {
             "loss": total_loss,
             "progress_bar": tqdm_dict,
+            "log": tqdm_dict,
         }
 

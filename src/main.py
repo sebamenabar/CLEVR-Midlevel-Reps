@@ -1,3 +1,5 @@
+import os
+
 from dotenv import load_dotenv
 from easydict import EasyDict as edict
 
@@ -13,7 +15,6 @@ load_dotenv()
 
 if __name__ == "__main__":
     args, cfg = parse_args_and_set_config(__C)
-
 
     model = PLModel(cfg)
     model.init_log(vars(args))
