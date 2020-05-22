@@ -43,14 +43,14 @@ __C.logcomet = (False, edict(help="log on comet_ml", action="store_true"))
 __C.comet_workspace = ("debug", edict(help=" ", type=str))
 __C.comet_project_name = ("debug", edict(help=" ", type=str))
 __C.run_name = (
-    None,
+    "",
     edict(
         help="name of the run of this experiment, will use current datetime as default, experiment will be saved on `experiments/<exp_dir>/<run_name>`",
         type=str,
     ),
 )
 __C.exp_name = (
-    None,
+    "",
     edict(
         help="experiment name, if empty the run will be saved directly inside of `experiments`",
         type=str,
@@ -97,7 +97,7 @@ def cfg_to_argparser_args(__c):
         if k1.endswith(".choices"):
             k1 = k1.rstrip("choices").rstrip(".")
             if k1 not in parser_args:
-                parser_args[k1] = {"choices": [v]}
+                parser_args[k1] = {"choices": [v], "default": default_values[k1]}
             elif "choices" not in parser_args[k1]:
                 parser_args[k1]["choices"] = [v]
             else:
