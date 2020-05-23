@@ -1,4 +1,5 @@
 import os
+import os.path as osp
 from pprint import PrettyPrinter as PP
 
 from dotenv import load_dotenv
@@ -8,6 +9,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 from model import PLModel
+from base_pl_model import CustomProgressBar
 from config import __C, parse_args_and_set_config
 
 
@@ -23,13 +25,29 @@ if __name__ == "__main__":
     model.init_log(vars(args))
     pp.pprint(vars(args))
     pp.pprint(cfg)
-    loggers, ckpt_callback = model.make_lightning_loggers_ckpt()
+    loggers = model.make_lightning_loggers()
+
+    default_ckpt_callback_kwargs = {
+        "filepath": osp.join(model.exp_dir, "checkpoints/"),
+        "monitor": "val_depths_acc_0.05",
+        "verbose": True,
+        "save_top_k": 2,
+    }
+    ckpt_callback = pl.callbacks.model_checkpoint.ModelCheckpoint(
+        **default_ckpt_callback_kwargs,
+    )
+
+    # progress_bar = CustomProgressBar(
+    #     refresh_rate=args.progress_bar_refresh_rate,
+    #     process_position=args.process_position,
+    # )
     trainer = pl.Trainer.from_argparse_args(
         args,
         logger=loggers,
-        checkpoint_callback=ckpt_callback,
+        # callbacks=[progress_bar],
         max_epochs=cfg.train.epochs,
         default_root_dir=model.exp_dir,
+        checkpoint_callback=ckpt_callback,
     )
     if args.eval:
         pass

@@ -28,6 +28,9 @@ from pytorch_lightning.utilities import parsing
 ### For the moment, non-CLI arguments cannot be lists/tuples (iterables?).
 ### e.g: __C.list_arguments = [1, 2, 3] will cause unknown behaviour
 
+
+### Replace as much of this as you want, it is just to give you the idea
+### that anything you want can be on the config
 __C = edict()
 __C.cfg_file = (None, edict(help="optional config file", type=str))
 __C.gpus = (

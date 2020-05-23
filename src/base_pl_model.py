@@ -8,8 +8,9 @@ import random
 from dateutil import tz
 from datetime import datetime as dt
 
-from pytorch_lightning.utilities.distributed import rank_zero_only
+from tqdm.auto import tqdm
 import pytorch_lightning as pl
+from pytorch_lightning.utilities.distributed import rank_zero_only
 
 from base_config import mkdir_p
 
@@ -113,14 +114,15 @@ class BasePLModel(pl.LightningModule):
             plt = _plt
             plt.close(figure)
 
-    def make_lightning_loggers_ckpt(
+    # def make_lightning_loggers_ckpt(
+    def make_lightning_loggers(
         self,
-        ckpt_callback_kwargs=dict(
-            # filepath=osp.join(self.exp_dir, "checkpoints/"),
-            monitor="val_loss",
-            verbose=True,
-            save_top_k=2,
-        ),
+        # ckpt_callback_kwargs=dict(
+        #     # filepath=osp.join(self.exp_dir, "checkpoints/"),
+        #     monitor="val_loss",
+        #     verbose=True,
+        #     save_top_k=2,
+        # ),
     ):
         loggers = [pl.loggers.TensorBoardLogger(save_dir=self.exp_dir, name="",)]
         if self.cfg.logcomet:
@@ -132,14 +134,14 @@ class BasePLModel(pl.LightningModule):
             )
             loggers.append(comet_logger)
 
-        default_ckpt_callback_kwargs = {
-            "filepath": osp.join(self.exp_dir, "checkpoints/"),
-        }
-        default_ckpt_callback_kwargs.update(ckpt_callback_kwargs)
-        ckpt_callback = pl.callbacks.model_checkpoint.ModelCheckpoint(
-            **default_ckpt_callback_kwargs,
-        )
-        return loggers, ckpt_callback
+        # default_ckpt_callback_kwargs = {
+        #     "filepath": osp.join(self.exp_dir, "checkpoints/"),
+        # }
+        # default_ckpt_callback_kwargs.update(ckpt_callback_kwargs)
+        # ckpt_callback = pl.callbacks.model_checkpoint.ModelCheckpoint(
+        #     **default_ckpt_callback_kwargs,
+        # )
+        return loggers  # , ckpt_callback
 
     @rank_zero_only
     def init_log(self, args=None):
@@ -182,3 +184,64 @@ class BasePLModel(pl.LightningModule):
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError
+
+
+class CustomProgressBar(pl.callbacks.progress.ProgressBar):
+    # Can't get rid of the v_num
+    # def on_batch_end(self, trainer, pl_module):
+    #     super().on_batch_end(trainer, pl_module)
+    #     if self.is_enabled and self.train_batch_idx % self.refresh_rate == 0:
+    #         self.main_progress_bar.update(self.refresh_rate)
+    #         progress_bar_dict = trainer.progress_bar_dict
+    #         del progress_bar_dict["v_num"]
+    #         self.main_progress_bar.set_postfix(progress_bar_dict)
+
+    def init_sanity_tqdm(self) -> tqdm:
+        """ Override this to customize the tqdm bar for the validation sanity run. """
+        bar = tqdm(
+            desc="Validation sanity check",
+            position=(2 * self.process_position),
+            disable=self.is_disabled,
+            leave=False,
+            dynamic_ncols=True,
+            file=sys.stderr,
+        )
+        return bar
+
+    def init_train_tqdm(self) -> tqdm:
+        """ Override this to customize the tqdm bar for training. """
+        bar = tqdm(
+            desc="Training",
+            initial=self.train_batch_idx,
+            position=(2 * self.process_position),
+            disable=self.is_disabled,
+            leave=True,
+            dynamic_ncols=True,
+            file=sys.stderr,
+            smoothing=0,
+        )
+        return bar
+
+    def init_validation_tqdm(self) -> tqdm:
+        """ Override this to customize the tqdm bar for validation. """
+        bar = tqdm(
+            desc="Validating",
+            position=(2 * self.process_position + 1),
+            disable=self.is_disabled,
+            leave=False,
+            dynamic_ncols=True,
+            file=sys.stderr,
+        )
+        return bar
+
+    def init_test_tqdm(self) -> tqdm:
+        """ Override this to customize the tqdm bar for testing. """
+        bar = tqdm(
+            desc="Testing",
+            position=(2 * self.process_position),
+            disable=self.is_disabled,
+            leave=True,
+            dynamic_ncols=True,
+            file=sys.stderr,
+        )
+        return bar

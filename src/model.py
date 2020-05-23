@@ -1,10 +1,14 @@
-from collections import OrderedDict as odict
 from easydict import EasyDict as edict
+from collections import OrderedDict as odict
+
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from torchvision.utils import make_grid
+import torchvision.transforms as T
 
 from data import CLEVRMidrepsDataset
 from base_pl_model import BasePLModel
@@ -112,7 +116,7 @@ class PLModel(BasePLModel):
 
         encoder_decoder_opt = make_opt(encoder_decoders_params, "encoder_decoder")
         encoder_decoder_sch = torch.optim.lr_scheduler.MultiStepLR(
-            encoder_decoder_opt, milestones=[20], gamma=0.1,
+            encoder_decoder_opt, milestones=[8, 20], gamma=0.1,
         )
         if self.discriminators:
             discriminator_opt = make_opt(
@@ -149,15 +153,75 @@ class PLModel(BasePLModel):
             pin_memory=self.use_cuda,
         )
 
-    # def val_dataloader(self):
-    #     return DataLoader(
-    #         self.val_dataset,
-    #         shuffle=False,
-    #         drop_last=False,
-    #         batch_size=self.cfg.train.val_bsz,
-    #         num_workers=self.cfg.num_workers,
-    #         pin_memory=self.use_cuda,
-    #     )
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            shuffle=False,
+            drop_last=False,
+            batch_size=self.cfg.train.val_bsz,
+            num_workers=self.cfg.num_workers,
+            pin_memory=self.use_cuda,
+        )
+
+    def validation_step(self, batch, batch_nb):
+        tgt_img, tgt_midreps = batch
+        _, pred_midreps = self(tgt_img)
+        stats = {}
+        # progress_bar = {}
+        for task in self.cfg.tasks:
+            lnorm = self.lnorm(pred_midreps[task], tgt_midreps[task]).flatten(1).sum(1)
+            abs_dist = (pred_midreps[task] - tgt_midreps[task]).abs()
+            abs_dist = abs_dist.mean(1).flatten(1)
+            acc_at_0025 = ((abs_dist <= 0.025).sum(1).float() / abs_dist.size(1)).float()
+            acc_at_005 = ((abs_dist <= 0.05).sum(1).float() / abs_dist.size(1)).float()
+            acc_at_01 = ((abs_dist <= 0.1).sum(1).float() / abs_dist.size(1)).float()
+
+            # progress_bar[f"{task}_lnorm"] = lnorm.mean()
+            # progress_bar[f"{task}_acc_0.025"] = acc_at_0025.mean()
+
+            stats[f"val_{task}_lnorm"] = lnorm
+            stats[f"val_{task}_acc_0.025"] = acc_at_0025
+            stats[f"val_{task}_acc_0.05"] = acc_at_005
+            stats[f"val_{task}_acc_0.1"] = acc_at_01
+
+        if batch_nb == 0:
+            img1 = make_grid(tgt_img[:32], nrow=1).permute(1, 2, 0).cpu()
+            img2 = make_grid(tgt_midreps["depths"][:32], nrow=1)[0].cpu()
+            img3 = make_grid(pred_midreps["depths"][:32], nrow=1)[0].cpu()
+
+            fig, (ax1, ax2, ax3) = plt.subplots(
+                nrows=1, ncols=3, figsize=(24, 8 * tgt_img.size(0))
+            )
+            ax1.imshow(img1)
+            ax2.imshow(img2, cmap="viridis")
+            ax3.imshow(img3, cmap="viridis")
+
+            ax1.set_title("Input image")
+            ax2.set_title("Real depth")
+            ax3.set_title("Predicted depth")
+
+            ax1.axis("off")
+            ax2.axis("off")
+            ax3.axis("off")
+
+            plt.subplots_adjust(wspace=0.01)
+
+            self.log_figure(fig, "depths", self.global_step)
+
+        return stats
+
+    def validation_epoch_end(self, outputs):
+        stats = {}
+        for k in outputs[0].keys():
+            stats[k] = torch.cat([o[k] for o in outputs]).mean()
+
+        return {
+            "progress_bar": {
+                "val_depths_lnorm": stats["val_depths_lnorm"],
+                "val_depths_acc_0.1": stats["val_depths_acc_0.1"],
+            },
+            "log": stats,
+        }
 
     def training_step(self, batch, batch_nb, optimizer_idx=None):
         if (optimizer_idx == 0) or (optimizer_idx is None):
@@ -165,12 +229,27 @@ class PLModel(BasePLModel):
             tgt_img, tgt_midreps = batch
             _, pred_midreps = self(tgt_img)
             losses = {}
+            stats = {}
             for task in self.cfg.tasks:
                 lnorm_loss = self.lnorm(pred_midreps[task], tgt_midreps[task])
                 lnorm_loss = lnorm_loss.flatten(1).sum(1).mean() * self.lambdas.lnorm
+                abs_dist = (pred_midreps[task] - tgt_midreps[task]).abs()
+                abs_dist = abs_dist.mean(1).flatten(1)
+                acc_at_0025 = (
+                    ((abs_dist <= 0.025).sum(1).float() / abs_dist.size(1)).float().mean()
+                )
+                acc_at_005 = (
+                    ((abs_dist <= 0.05).sum(1).float() / abs_dist.size(1)).float().mean()
+                )
+                acc_at_01 = ((abs_dist <= 0.1).sum(1).float() / abs_dist.size(1)).float().mean()
                 losses[task] = {
                     "loss": lnorm_loss,
                     "lnorm": lnorm_loss,
+                }
+                stats[task] = {
+                    "acc_0.025": acc_at_0025,
+                    "acc_0.05": acc_at_005,
+                    "acc_0.1": acc_at_01,
                 }
                 if self.discriminators:
                     disc_inp = torch.cat([tgt_img, pred_midreps[task]], 1)
@@ -190,6 +269,12 @@ class PLModel(BasePLModel):
                 for lname, lval in loss.items():
                     if lname != "loss":
                         tqdm_dict[f"{task}_{lname}"] = lval
+                tqdm_dict[f"{task}_acc_0.1"] = stats[task]["acc_0.1"]
+
+            log = {**tqdm_dict}
+            for task, _stats in stats.items():
+                for sname, _stat in _stats.items():
+                    log[f"{task}_{sname}"] = _stat
 
             if optimizer_idx == 0:
                 self.stored_fake_batch = edict(
@@ -223,9 +308,10 @@ class PLModel(BasePLModel):
             for task, loss in losses.items():
                 tqdm_dict[f"{task}_d"] = loss
 
+            log = tqdm_dict
+
         return {
             "loss": total_loss,
             "progress_bar": tqdm_dict,
-            "log": tqdm_dict,
+            "log": log,
         }
-
