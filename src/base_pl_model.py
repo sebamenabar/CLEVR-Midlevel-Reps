@@ -67,7 +67,11 @@ class BasePLModel(pl.LightningModule):
 
     @property
     def loggers(self):
-        return self.logger if hasattr(self.logger, '__len__') else [self.logger]
+        if self.logger:
+            if isinstance(self.logger, pl.loggers.base.LoggerCollection):
+                return self.logger
+            else:
+                return [self.logger]
 
     @property
     def comet_logger(self):

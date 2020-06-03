@@ -1,17 +1,29 @@
+from easydict import EasyDict as edict
+from pprint import PrettyPrinter as PP
+
 import torch
 import torch.nn as nn
+
+import matplotlib.pyplot as plt
 
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid
 
+from base_config import flatten_json_iterative_solution
+from data import CLEVRMidrepsDataset
 from backbones import RNEncoder, RNDecoder, RNDiscriminator
 from base_pl_model import BasePLModel
 from utils import task_to_out_nc, get_acc_at
 from losses import bce_fill
 
+pp = PP(indent=4)
+
 
 class PLModel(BasePLModel):
     def __init__(self, cfg=None):
+        if not isinstance(cfg.tasks, list):
+            cfg.tasks = [cfg.tasks]
+
         super().__init__(cfg)
 
         self.many_validation = True
@@ -19,12 +31,11 @@ class PLModel(BasePLModel):
         self.decoder = RNDecoder(tasks=cfg.tasks, **cfg.model.decoder.kwargs)
 
         self.discriminators = None
-        if cfg.discriminator.use:
+        if cfg.model.discriminator.use:
             self.discriminators = nn.ModuleDict()
             for task in cfg.tasks:
-                self.discriminator[task] = RNDiscriminator(
-                    input_nc=3 + task_to_out_nc[task],
-                    **cfg.model.discriminator.kwargs,
+                self.discriminators[task] = RNDiscriminator(
+                    in_nc=3 + task_to_out_nc[task], **cfg.model.discriminator.kwargs,
                 )
 
         if cfg.train.lnorm == "l1":
@@ -153,25 +164,30 @@ class PLModel(BasePLModel):
         if "autoencoder" in self.cfg.tasks:
             tgt_midreps["autoencoder"] = tgt_img
         _, pred_midreps = self(tgt_img)
-        stats = {}
         if dataset_idx == 0:
-            prefix = "orig_"
+            prefix = "orig"
         elif dataset_idx == 1:
-            prefix = "uni_"
+            prefix = "uni"
         else:
             prefix = ""
+        stats = {
+            "lnorm": {},
+            "acc": {},
+        }
         for task in self.cfg.tasks:
             lnorm = self.lnorm(pred_midreps[task], tgt_midreps[task]).flatten(1).sum(1)
             abs_dist = (pred_midreps[task] - tgt_midreps[task]).abs()
             abs_dist = abs_dist.mean(1).flatten(1)
 
-            stats[f"{prefix}val_{task}_lnorm"] = lnorm
+            stats["lnorm"][task] = lnorm
+
             acc_levels = [0.01, 0.025, 0.05]
+            stats["acc"][task] = {}
             for acc_l in acc_levels:
-                stats[f"{prefix}val_{task}_{acc_l}"] = get_acc_at(abs_dist, acc_l)
+                stats["acc"][task][acc_l] = get_acc_at(abs_dist, acc_l)
 
         if batch_nb == 0:
-            num_samples = 32
+            num_samples = min(tgt_img.size(0), 32)
             img1 = make_grid(tgt_img[:num_samples], nrow=1).permute(1, 2, 0).cpu()
             img2 = make_grid(tgt_midreps["depths"][:num_samples], nrow=1)[0].cpu()
             img3 = make_grid(pred_midreps["depths"][:num_samples], nrow=1)[0].cpu()
@@ -181,52 +197,86 @@ class PLModel(BasePLModel):
                 ncols=1 + 2 * len(pred_midreps),
                 figsize=(6 * (1 + 2 * len(pred_midreps)), 6 * num_samples),
             )
-            plt.axis('off')
-            
+
             img_ax = axes[0]
             img = make_grid(tgt_img[:num_samples], nrow=1).permute(1, 2, 0).cpu()
             img_ax.imshow(img)
             img_ax.set_title("Input image", fontsize=30)
-            plt.subplots_adjust(wspace=0.01)
-            # img_ax.axis("off")
-            
+            img_ax.axis("off")
+
             for i, task_name in enumerate(pred_midreps.keys()):
                 gt_ax = axes[i * 2 + 1]
                 pred_ax = axes[i * 2 + 2]
-                
+
                 gt_img = make_grid(tgt_midreps[task_name][:num_samples], nrow=1).cpu()
                 if gt_img.size(0) == 1:
                     gt_img = gt_img.squeeze(0)
                 else:
                     gt_img = gt_img.permute(1, 2, 0)
-                pred_img = make_grid(pred_midreps[task_name][:num_samples], nrow=1).cpu()
+                pred_img = make_grid(
+                    pred_midreps[task_name][:num_samples], nrow=1
+                ).cpu()
                 if pred_img.size(0) == 1:
                     pred_img = pred_img.squeeze(0)
                 else:
                     pred_img = pred_img.permute(1, 2, 0)
-            
+
                 gt_ax.imshow(gt_img, cmap="viridis")
                 pred_ax.imshow(pred_img, cmap="viridis")
 
                 gt_ax.set_title(f"Real {task_name}", fontsize=30)
                 pred_ax.set_title(f"Predicted {task_name}", fontsize=30)
-            
-            self.log_figure(fig, f"{prefix}validation", self.global_step)
+                gt_ax.axis("off")
+                pred_ax.axis("off")
+
+            plt.subplots_adjust(wspace=0.01)
+            plt.axis("off")
+            self.log_figure(fig, f"{prefix}_validation", self.global_step)
 
         return stats
 
     def validation_epoch_end(self, outputs):
+        # stats = {"orig": {"lnorm": {}, "acc": {}}, "uni": {"lnorm": {}, "acc": {}}}
         stats = {}
-        outputs = outputs[0]
-        for k in outputs[0].keys():
-            stats[k] = torch.cat([o[k] for o in outputs]).mean()
+
+        def aggregate_lnorm(output_list, prefix):
+            for task_name in output_list[0]["lnorm"].keys():
+                # stats[prefix]["lnorm"][task_name] = torch.cat(
+                stats[f"val_{prefix}_lnorm_{task_name}"] = (
+                    torch.cat([o["lnorm"][task_name] for o in output_list])
+                    .mean()
+                    .item()
+                )
+
+        def aggregate_acc(output_list, prefix):
+            for task_name in output_list[0]["acc"].keys():
+                # stats[prefix]["acc"][task_name] = {}
+                for acc_l in output_list[0]["acc"][task_name].keys():
+                    # stats[prefix]["acc"][task_name][acc_l] = torch.cat(
+                    stats[f"val_{prefix}_acc_{task_name}_{acc_l}"] = (
+                        torch.cat([o["acc"][task_name][acc_l] for o in output_list])
+                        .mean()
+                        .item()
+                    )
+
+        aggregate_lnorm(outputs[0], "orig")
+        aggregate_lnorm(outputs[1], "uni")
+        aggregate_acc(outputs[0], "orig")
+        aggregate_acc(outputs[1], "uni")
+
+        stats = flatten_json_iterative_solution(stats)
+
+        self.print()
+        self.print(f"Epoch: {self.current_epoch}")
+        self.print(pp.pformat(stats))
 
         return {
-#             "progress_bar": {
-#                 "val_depths_lnorm": stats["val_depths_lnorm"],
-#                 "val_depths_acc_0.1": stats["val_depths_acc_0.1"],
-#             },
+            # "progress_bar": {
+            #     "val_depths_lnorm": stats["val_depths_lnorm"],
+            #     "val_depths_acc_0.1": stats["val_depths_acc_0.1"],
+            # },
             "log": stats,
+            # "val_depths_acc_0.025": stats["orig"]["acc"],
         }
 
     def training_step(self, batch, batch_nb, optimizer_idx=None):
@@ -235,7 +285,7 @@ class PLModel(BasePLModel):
             tgt_midreps["autoencoder"] = tgt_img
         if (optimizer_idx == 0) or (optimizer_idx is None):
             # Train encoder decoder
-            
+
             _, pred_midreps = self(tgt_img)
             losses = {}
             stats = {}
@@ -250,12 +300,26 @@ class PLModel(BasePLModel):
                 }
                 acc_levels = [0.01, 0.025, 0.05]
                 stats[task] = {
-                    f"acc_{acc_l}": get_acc_at(abs_dist, acc_l).mean() for acc_l in acc_levels
+                    f"acc_{acc_l}": get_acc_at(abs_dist, acc_l).mean()
+                    for acc_l in acc_levels
                 }
+
+            if self.discriminators:
+                for task_name, d in self.discriminators.items():
+                    disc_inp = torch.cat([tgt_img, pred_midreps[task_name]], 1)
+                    disc_inp += torch.empty_like(disc_inp).normal_(0, 0.01)
+                    disc_pred = d(disc_inp)
+                    gen_loss = bce_fill(disc_pred, 1)
+                    gen_loss = gen_loss.mean() * self.lambdas.adv
+                    losses[task]["g"] = gen_loss
+                    if gen_loss >= 0.05 and getattr(self, "d_loss", 0.0) <= 1.5:
+                        losses[task]["loss"] += gen_loss
 
             total_loss = 0.0
             for task, loss in losses.items():
                 total_loss += loss["loss"] * self.lambdas[task]
+            if total_loss < 0.2:
+                total_loss = torch.tensor(0.0, requires_grad=True)
 
             tqdm_dict = {}
             for task, loss in losses.items():
@@ -277,7 +341,7 @@ class PLModel(BasePLModel):
         elif optimizer_idx == 1:
             pred_midreps = self.stored_fake_batch
             losses = {}
-            for task_name, disc in self.discriminators._modules.items():
+            for task_name, disc in self.discriminators.items():
                 real_inp = torch.cat([tgt_img, tgt_midreps[task_name]], 1)
                 real_inp += torch.empty_like(real_inp).normal_(0, 0.01)
                 real2real = disc(real_inp)
@@ -295,6 +359,8 @@ class PLModel(BasePLModel):
             total_loss = 0.0
             for task, loss in losses.items():
                 total_loss += loss * self.lambdas[task]
+
+            self.d_loss = total_loss.detach()
 
             tqdm_dict = {}
             for task, loss in losses.items():

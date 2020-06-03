@@ -8,7 +8,8 @@ from easydict import EasyDict as edict
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
-from model import PLModel
+# from model import PLModel
+from simple_model import PLModel
 from base_pl_model import CustomProgressBar
 from config import __C, parse_args_and_set_config
 
@@ -29,9 +30,9 @@ if __name__ == "__main__":
 
     default_ckpt_callback_kwargs = {
         "filepath": osp.join(model.exp_dir, "checkpoints/"),
-        "monitor": "val_depths_acc_0.05",
+        # "monitor": "val_depths_acc_0.025",
         "verbose": True,
-        "save_top_k": 2,
+        "save_top_k": -1,
     }
     ckpt_callback = pl.callbacks.model_checkpoint.ModelCheckpoint(
         **default_ckpt_callback_kwargs,

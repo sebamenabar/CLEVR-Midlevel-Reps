@@ -6,7 +6,7 @@ from base_config import __C, parse_args_and_set_config, edict, _to_values_only
 del __C.train.lr
 
 # Replace default arguments
-__C.tasks = ("depths", edict(choices=["depths", "normals"], nargs="+", type=str))
+__C.tasks = ("depths", edict(choices=["depths", "normals", "autoencoder"], nargs="+", type=str))
 if torch.cuda.is_available():
     __C.orig_dir = (
         "/storage1/samenabar/code/CLMAC/clevr-dataset-gen/datasets/CLEVR_v1.2",
@@ -21,7 +21,7 @@ else:
         "/Users/sebamenabar/Documents/datasets/tmp/CLEVR_v1.2",
         edict(type=str),
     )
-    __C.orig_dir = (
+    __C.uni_dir = (
         "/Users/sebamenabar/Documents/datasets/tmp/CLEVR_Uni_v1.2",
         edict(type=str),
     )
@@ -51,7 +51,7 @@ __C.train.adv_skip = (True, edict(type=lambda x: bool(parsing.strtobool(x))))
 
 # Model args
 __C.model = edict()
-__C.model.arch = ("rn", edict(type="str", chocies=["rn"]))
+__C.model.arch = ("rn", edict(type=str, choices=["rn"]))
 
 # Encoder args
 # __C.model.backbone = edict()
@@ -73,7 +73,7 @@ __C.model.decoder = edict()
 # __C.model.decoder.use = True
 __C.model.decoder.kwargs = edict(
     # in_nc=8, output_act="sigmoid", out_channels=3, lightweight=True,
-    in_nc=__C.model.encoder.kwarrgs.out_nc,
+    in_nc=__C.model.encoder.kwargs.out_nc,
     last_nc=256,
 )
 

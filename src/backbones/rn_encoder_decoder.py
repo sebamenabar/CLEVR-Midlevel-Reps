@@ -1,11 +1,12 @@
+import torch
 import torch.nn as nn
 from utils import task_to_out_nc
 
 
 out_activations = {
-    "depths": nn.functional.relu,
-    "normals": nn.functional.relu,
-    "autoencoder": nn.functional.relu,
+    "depths": torch.sigmoid,
+    "normals": torch.sigmoid,
+    "autoencoder": torch.sigmoid,
 }
 
 class RNBackbone(nn.Module):
