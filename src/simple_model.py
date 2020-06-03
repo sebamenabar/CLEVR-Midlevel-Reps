@@ -309,15 +309,14 @@ class PLModel(BasePLModel):
                     disc_inp = torch.cat([tgt_img, pred_midreps[task_name]], 1)
                     disc_inp += torch.empty_like(disc_inp).normal_(0, 0.01)
                     disc_pred = d(disc_inp)
-                    gen_loss = bce_fill(disc_pred, 1)
-                    gen_loss = gen_loss.mean() * self.lambdas.adv
+                    gen_loss = bce_fill(disc_pred, 1).mean()
                     losses[task]["g"] = gen_loss
                     if gen_loss >= 0.05 and getattr(self, "d_loss", 0.0) <= 1.5:
-                        losses[task]["loss"] += gen_loss
+                        losses[task]["loss"] += gen_loss * self.lambdas.adv
 
             total_loss = 0.0
             for task, loss in losses.items():
-                total_loss += loss["loss"] * self.lambdas[task]
+                total_loss = total_loss + loss["loss"] * self.lambdas[task]
 
             tqdm_dict = {}
             for task, loss in losses.items():
@@ -351,13 +350,13 @@ class PLModel(BasePLModel):
                 disc_loss = (
                     bce_fill(real2real, 1).mean() + bce_fill(fake2real, 0).mean()
                 )
-                disc_loss = disc_loss * 0.5 * self.lambdas.adv
+                disc_loss = disc_loss * 0.5
                 losses[task_name] = disc_loss
 
             total_loss = torch.tensor(0.0, requires_grad=True)
             for task, loss in losses.items():
                 if loss >= 0.2:
-                    total_loss += loss * self.lambdas[task]
+                    total_loss = total_loss + loss * self.lambdas[task]
 
             self.d_loss = total_loss.detach()
 
