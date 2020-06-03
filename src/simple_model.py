@@ -318,8 +318,6 @@ class PLModel(BasePLModel):
             total_loss = 0.0
             for task, loss in losses.items():
                 total_loss += loss["loss"] * self.lambdas[task]
-            if total_loss < 0.2:
-                total_loss = torch.tensor(0.0, requires_grad=True)
 
             tqdm_dict = {}
             for task, loss in losses.items():
@@ -356,9 +354,10 @@ class PLModel(BasePLModel):
                 disc_loss = disc_loss * 0.5 * self.lambdas.adv
                 losses[task_name] = disc_loss
 
-            total_loss = 0.0
+            total_loss = torch.tensor(0.0, requires_grad=True)
             for task, loss in losses.items():
-                total_loss += loss * self.lambdas[task]
+                if loss >= 0.2:
+                    total_loss += loss * self.lambdas[task]
 
             self.d_loss = total_loss.detach()
 
