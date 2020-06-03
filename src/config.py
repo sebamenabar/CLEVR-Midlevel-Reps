@@ -1,6 +1,6 @@
 import torch
 from pytorch_lightning.utilities import parsing
-from base_config import __C, parse_args_and_set_config, edict
+from base_config import __C, parse_args_and_set_config, edict, _to_values_only
 
 # Remove unrequired parameters
 del __C.train.lr
@@ -8,17 +8,25 @@ del __C.train.lr
 # Replace default arguments
 __C.tasks = ("depths", edict(choices=["depths", "normals"], nargs="+", type=str))
 if torch.cuda.is_available():
-    __C.data_dir = (
+    __C.orig_dir = (
         "/storage1/samenabar/code/CLMAC/clevr-dataset-gen/datasets/CLEVR_v1.2",
         edict(type=str),
     )
+    __C.uni_dir = (
+        "/storage1/samenabar/code/CLMAC/clevr-dataset-gen/datasets/CLEVR_Uni_v1.2",
+        edict(type=str),
+    )
 else:
-    __C.data_dir = (
+    __C.orig_dir = (
         "/Users/sebamenabar/Documents/datasets/tmp/CLEVR_v1.2",
         edict(type=str),
     )
-__C.train.epochs = 10
-__C.train.bsz[0] = 32
+    __C.orig_dir = (
+        "/Users/sebamenabar/Documents/datasets/tmp/CLEVR_Uni_v1.2",
+        edict(type=str),
+    )
+__C.train.epochs = 15
+__C.train.bsz[0] = 64
 __C.train.val_bsz[0] = 64
 __C.train.lrs = edict()
 __C.train.lrs.default = (1e-4, edict(type=float))
@@ -38,43 +46,51 @@ __C.train.adv_mult = 0.004
 __C.train.task_lambdas = edict()
 __C.train.task_lambdas.depths = 1
 __C.train.task_lambdas.normals = 1
+__C.train.task_lambdas.autoencoder = 1
 __C.train.adv_skip = (True, edict(type=lambda x: bool(parsing.strtobool(x))))
 
 # Model args
 __C.model = edict()
+__C.model.arch = ("rn", edict(type="str", chocies=["rn"]))
 
 # Encoder args
-__C.model.backbone = edict()
+# __C.model.backbone = edict()
 #  __C.model.backbone.use = True
-__C.model.backbone.kwargs = edict(lightweight=True, layers=None)
+# __C.model.backbone.kwargs = edict(lightweight=True, layers=None)
+__C.model.encoder = edict(kwargs=edict(out_nc=512))
+
 
 # Midreps args
-__C.model.midreps = edict()
-__C.model.midreps.use = (
-    True,
-    edict(dest="model.midreps.use", type=lambda x: bool(parsing.strtobool(x))),
-)
-__C.model.midreps.kwargs = edict(normalize_outputs=True)
+# __C.model.midreps = edict()
+# __C.model.midreps.use = (
+#     True,
+#     edict(type=lambda x: bool(parsing.strtobool(x))),
+# )
+# __C.model.midreps.kwargs = edict(normalize_outputs=True)
 
 # Decoder args
 __C.model.decoder = edict()
-__C.model.decoder.use = True
+# __C.model.decoder.use = True
 __C.model.decoder.kwargs = edict(
-    in_nc=8, output_act="sigmoid", out_channels=3, lightweight=True,
+    # in_nc=8, output_act="sigmoid", out_channels=3, lightweight=True,
+    in_nc=__C.model.encoder.kwarrgs.out_nc,
+    last_nc=256,
 )
 
 # Discriminator args
 __C.model.discriminator = edict()
 __C.model.discriminator.use = (
     False,
-    edict(dest="model.discriminator.use", type=lambda x: bool(parsing.strtobool(x)),),
+    edict(type=lambda x: bool(parsing.strtobool(x)),),
 )
 __C.model.discriminator.kwargs = edict(
-    input_nc=6,
-    ndf=64,
-    n_layers=5,
-    norm_layer="batchnorm",
-    stride=2,
-    use_sigmoid=False,
-    out_pool=True,
+    out_nc=512,
+
+    # input_nc=6,
+    # ndf=64,
+    # n_layers=5,
+    # norm_layer="batchnorm",
+    # stride=2,
+    # use_sigmoid=False,
+    # out_pool=True,
 )

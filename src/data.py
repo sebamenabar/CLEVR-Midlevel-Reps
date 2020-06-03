@@ -100,10 +100,9 @@ class CLEVRMidrepsDataset(data.Dataset):
         "depths": get_depth,
         "normals": get_normal,
         "shadeless": get_shadeless,
+        "autoencoder": lambda x: None,
     }
-    std_img_transform = T.Compose(
-        [T.Resize((224, 224)), T.ToTensor()]
-    )
+    std_img_transform = T.Compose([T.Resize((224, 224)), T.ToTensor()])
     std_midreps_transforms = T.Compose(
         [
             lambda img: resize(img, (224, 224), preserve_range=True).transpose(2, 0, 1),
@@ -133,11 +132,20 @@ class CLEVRMidrepsDataset(data.Dataset):
         img_fp = self.files[index]
         img = self.loader(img_fp)
         data = {midrep: self.get_fns[midrep](img_fp) for midrep in midreps}
+        if "autoencoder" in data:
+            del data["autoencoder"]
 
         if self.transform is not None:
             img = self.transform(img)
         if self.midreps_transform is not None:
-            data = {k: self.midreps_transform(v) for k, v in data.items()}
+            if isinstance(self.midreps_transform, dict):
+                default_transform = self.midreps_transform.get("default", None)
+                data = {
+                    k: self.midreps_transform.get(k, default_transform)(v)
+                    for k, v in data.items()
+                }
+            else:
+                data = {k: self.midreps_transform(v) for k, v in data.items()}
 
         return img, edict(data)
 

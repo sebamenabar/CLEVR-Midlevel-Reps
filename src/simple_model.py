@@ -1,69 +1,31 @@
-from easydict import EasyDict as edict
-from collections import OrderedDict as odict
-
-import matplotlib.pyplot as plt
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid
-import torchvision.transforms as T
 
-from data import CLEVRMidrepsDataset
+from backbones import RNEncoder, RNDecoder, RNDiscriminator
 from base_pl_model import BasePLModel
-from discriminator import NLayerDiscriminator
-from backbones import (
-    MRBackbone,
-    Midreps,
-    MRDecoder,
-    RNBackbone,
-    RNDecoder,
-)
-from common import task_to_out_nc
+from utils import task_to_out_nc, get_acc_at
 from losses import bce_fill
-
 
 
 class PLModel(BasePLModel):
     def __init__(self, cfg=None):
         super().__init__(cfg)
 
-        if cfg.model.arch == "rn":
-            self.backbone = RNBackbone()
-            self.decoder = RNDecoder(out_dim=len(cfg.tasks))
+        self.many_validation = True
+        self.encoder = RNEncoder(**cfg.model.encoder.kwargs)
+        self.decoder = RNDecoder(tasks=cfg.tasks, **cfg.model.decoder.kwargs)
 
-        # self.backbone = MRBackbone(**cfg.model.backbone.kwargs)
-        # self.midreps = None
-        # self.decoders = None
-        # self.discriminators = None
-
-        # decoder_in_nc = 2048
-        # if cfg.model.midreps.use:
-        #     midreps = {}
-        #     decoder_in_nc = 8
-        #     for task in cfg.tasks:
-        #         midreps[task] = Midreps(**cfg.model.midreps.kwargs)
-        #     self.midreps = nn.Sequential(odict(midreps))
-
-        # cfg.model.decoder.kwargs.in_nc = decoder_in_nc
-        # decoders = {}
-        # if cfg.model.discriminator.use:
-        #     discriminators = {}
-        # for task in cfg.tasks:
-        #     out_nc = task_to_out_nc[task]
-        #     decoder_kwargs = {}
-        #     decoder_kwargs.update(cfg.model.decoder.kwargs)
-        #     decoder_kwargs["out_channels"] = out_nc
-        #     decoders[task] = MRDecoder(**decoder_kwargs)
-        #     if cfg.model.discriminator.use:
-        #         disc_kwargs = {}
-        #         disc_kwargs.update(cfg.model.discriminator.kwargs)
-        #         disc_kwargs["input_nc"] = 3 + out_nc
-        #         discriminators[task] = NLayerDiscriminator(**disc_kwargs)
-        # self.decoders = nn.Sequential(odict(decoders))
-        # if cfg.model.discriminator.use:
-        #     self.discriminators = nn.Sequential(odict(discriminators))
+        self.discriminators = None
+        if cfg.discriminator.use:
+            self.discriminators = nn.ModuleDict()
+            for task in cfg.tasks:
+                self.discriminator[task] = RNDiscriminator(
+                    input_nc=3 + task_to_out_nc[task],
+                    **cfg.model.discriminator.kwargs,
+                )
 
         if cfg.train.lnorm == "l1":
             self.lnorm = nn.L1Loss(reduction="none")
@@ -87,31 +49,17 @@ class PLModel(BasePLModel):
         for task in cfg.tasks:
             self.lambdas[task] = cfg.train.task_lambdas[task] / inter_task_normalizar
 
-        self.print("Multitask weights:")
-        self.print(self.lambdas)
+        print("Multitask weights:")
+        print(self.lambdas)
 
     def forward(self, img):
-        features = self.backbone(img)
-        decoded = self.decoder(features)
-        # ret = edict()
-        # if self.midreps:
-        #     for task_name, task_net in self.midreps._modules.items():
-        #         ret[task_name] = task_net(features)
-        #     for task_name, task_decoder in self.decoders._modules.items():
-        #         ret[task_name] = task_decoder(ret[task_name])
-        # else:
-        #     for task_name, task_decoder in self.decoders._modules.items():
-        #         ret[task_name] = task_decoder(features)
-
-        return features, decoded
+        features = self.encoder(img)
+        midreps = self.decoder(features)
+        return features, midreps
 
     def configure_optimizers(self):
-        encoder_decoder_params = list(self.backbone.parameters())
+        encoder_decoder_params = list(self.encoder.parameters())
         encoder_decoder_params += list(self.decoder.parameters())
-        # if self.midreps:
-        #     encoder_decoders_params += list(self.midreps.parameters())
-        # if self.decoders:
-        #     encoder_decoders_params += list(self.decoders.parameters())
 
         def make_opt(parameters, name):
             return torch.optim.Adam(
@@ -137,16 +85,32 @@ class PLModel(BasePLModel):
         return [encoder_decoder_opt], [encoder_decoder_sch]
 
     def prepare_data(self):
-        self.train_dataset = CLEVRMidrepsDataset(
-            base_dir=self.cfg.data_dir,
+        self.orig_train_dataset = CLEVRMidrepsDataset(
+            base_dir=self.cfg.orig_dir,
             split="train",
             midreps=self.cfg.tasks,
             transform=CLEVRMidrepsDataset.std_img_transform,
             midreps_transform=CLEVRMidrepsDataset.std_midreps_transforms,
         )
 
-        self.val_dataset = CLEVRMidrepsDataset(
-            base_dir=self.cfg.data_dir,
+        self.orig_val_dataset = CLEVRMidrepsDataset(
+            base_dir=self.cfg.orig_dir,
+            split="val",
+            midreps=self.cfg.tasks,
+            transform=CLEVRMidrepsDataset.std_img_transform,
+            midreps_transform=CLEVRMidrepsDataset.std_midreps_transforms,
+        )
+
+        self.uni_train_dataset = CLEVRMidrepsDataset(
+            base_dir=self.cfg.uni_dir,
+            split="train",
+            midreps=self.cfg.tasks,
+            transform=CLEVRMidrepsDataset.std_img_transform,
+            midreps_transform=CLEVRMidrepsDataset.std_midreps_transforms,
+        )
+
+        self.uni_val_dataset = CLEVRMidrepsDataset(
+            base_dir=self.cfg.uni_dir,
             split="val",
             midreps=self.cfg.tasks,
             transform=CLEVRMidrepsDataset.std_img_transform,
@@ -155,7 +119,7 @@ class PLModel(BasePLModel):
 
     def train_dataloader(self):
         return DataLoader(
-            self.train_dataset,
+            self.orig_train_dataset,
             shuffle=True,
             drop_last=True,
             batch_size=self.cfg.train.bsz,
@@ -164,8 +128,8 @@ class PLModel(BasePLModel):
         )
 
     def val_dataloader(self):
-        return DataLoader(
-            self.val_dataset,
+        orig_val_loader = DataLoader(
+            self.orig_val_dataset,
             shuffle=False,
             drop_last=False,
             batch_size=self.cfg.train.val_bsz,
@@ -173,72 +137,105 @@ class PLModel(BasePLModel):
             pin_memory=self.use_cuda,
         )
 
-    def validation_step(self, batch, batch_nb):
+        uni_val_loader = DataLoader(
+            self.uni_val_dataset,
+            shuffle=False,
+            drop_last=False,
+            batch_size=self.cfg.train.val_bsz,
+            num_workers=self.cfg.num_workers,
+            pin_memory=self.use_cuda,
+        )
+
+        return [orig_val_loader, uni_val_loader]
+
+    def validation_step(self, batch, batch_nb, dataset_idx=None):
         tgt_img, tgt_midreps = batch
+        if "autoencoder" in self.cfg.tasks:
+            tgt_midreps["autoencoder"] = tgt_img
         _, pred_midreps = self(tgt_img)
         stats = {}
-        # progress_bar = {}
+        if dataset_idx == 0:
+            prefix = "orig_"
+        elif dataset_idx == 1:
+            prefix = "uni_"
+        else:
+            prefix = ""
         for task in self.cfg.tasks:
             lnorm = self.lnorm(pred_midreps[task], tgt_midreps[task]).flatten(1).sum(1)
             abs_dist = (pred_midreps[task] - tgt_midreps[task]).abs()
             abs_dist = abs_dist.mean(1).flatten(1)
-            acc_at_0025 = (
-                (abs_dist <= 0.025).sum(1).float() / abs_dist.size(1)
-            ).float()
-            acc_at_005 = ((abs_dist <= 0.05).sum(1).float() / abs_dist.size(1)).float()
-            acc_at_01 = ((abs_dist <= 0.1).sum(1).float() / abs_dist.size(1)).float()
 
-            # progress_bar[f"{task}_lnorm"] = lnorm.mean()
-            # progress_bar[f"{task}_acc_0.025"] = acc_at_0025.mean()
-
-            stats[f"val_{task}_lnorm"] = lnorm
-            stats[f"val_{task}_acc_0.025"] = acc_at_0025
-            stats[f"val_{task}_acc_0.05"] = acc_at_005
-            stats[f"val_{task}_acc_0.1"] = acc_at_01
+            stats[f"{prefix}val_{task}_lnorm"] = lnorm
+            acc_levels = [0.01, 0.025, 0.05]
+            for acc_l in acc_levels:
+                stats[f"{prefix}val_{task}_{acc_l}"] = get_acc_at(abs_dist, acc_l)
 
         if batch_nb == 0:
-            img1 = make_grid(tgt_img[:32], nrow=1).permute(1, 2, 0).cpu()
-            img2 = make_grid(tgt_midreps["depths"][:32], nrow=1)[0].cpu()
-            img3 = make_grid(pred_midreps["depths"][:32], nrow=1)[0].cpu()
+            num_samples = 32
+            img1 = make_grid(tgt_img[:num_samples], nrow=1).permute(1, 2, 0).cpu()
+            img2 = make_grid(tgt_midreps["depths"][:num_samples], nrow=1)[0].cpu()
+            img3 = make_grid(pred_midreps["depths"][:num_samples], nrow=1)[0].cpu()
 
-            fig, (ax1, ax2, ax3) = plt.subplots(
-                nrows=1, ncols=3, figsize=(24, 8 * tgt_img.size(0))
+            fig, axes = plt.subplots(
+                nrows=1,
+                ncols=1 + 2 * len(pred_midreps),
+                figsize=(6 * (1 + 2 * len(pred_midreps)), 6 * num_samples),
             )
-            ax1.imshow(img1)
-            ax2.imshow(img2, cmap="viridis")
-            ax3.imshow(img3, cmap="viridis")
-
-            ax1.set_title("Input image")
-            ax2.set_title("Real depth")
-            ax3.set_title("Predicted depth")
-
-            ax1.axis("off")
-            ax2.axis("off")
-            ax3.axis("off")
-
+            plt.axis('off')
+            
+            img_ax = axes[0]
+            img = make_grid(tgt_img[:num_samples], nrow=1).permute(1, 2, 0).cpu()
+            img_ax.imshow(img)
+            img_ax.set_title("Input image", fontsize=30)
             plt.subplots_adjust(wspace=0.01)
+            # img_ax.axis("off")
+            
+            for i, task_name in enumerate(pred_midreps.keys()):
+                gt_ax = axes[i * 2 + 1]
+                pred_ax = axes[i * 2 + 2]
+                
+                gt_img = make_grid(tgt_midreps[task_name][:num_samples], nrow=1).cpu()
+                if gt_img.size(0) == 1:
+                    gt_img = gt_img.squeeze(0)
+                else:
+                    gt_img = gt_img.permute(1, 2, 0)
+                pred_img = make_grid(pred_midreps[task_name][:num_samples], nrow=1).cpu()
+                if pred_img.size(0) == 1:
+                    pred_img = pred_img.squeeze(0)
+                else:
+                    pred_img = pred_img.permute(1, 2, 0)
+            
+                gt_ax.imshow(gt_img, cmap="viridis")
+                pred_ax.imshow(pred_img, cmap="viridis")
 
-            self.log_figure(fig, "depths", self.global_step)
+                gt_ax.set_title(f"Real {task_name}", fontsize=30)
+                pred_ax.set_title(f"Predicted {task_name}", fontsize=30)
+            
+            self.log_figure(fig, f"{prefix}validation", self.global_step)
 
         return stats
 
     def validation_epoch_end(self, outputs):
         stats = {}
+        outputs = outputs[0]
         for k in outputs[0].keys():
             stats[k] = torch.cat([o[k] for o in outputs]).mean()
 
         return {
-            "progress_bar": {
-                "val_depths_lnorm": stats["val_depths_lnorm"],
-                "val_depths_acc_0.1": stats["val_depths_acc_0.1"],
-            },
+#             "progress_bar": {
+#                 "val_depths_lnorm": stats["val_depths_lnorm"],
+#                 "val_depths_acc_0.1": stats["val_depths_acc_0.1"],
+#             },
             "log": stats,
         }
 
     def training_step(self, batch, batch_nb, optimizer_idx=None):
+        tgt_img, tgt_midreps = batch
+        if "autoencoder" in self.cfg.tasks:
+            tgt_midreps["autoencoder"] = tgt_img
         if (optimizer_idx == 0) or (optimizer_idx is None):
             # Train encoder decoder
-            tgt_img, tgt_midreps = batch
+            
             _, pred_midreps = self(tgt_img)
             losses = {}
             stats = {}
@@ -247,36 +244,14 @@ class PLModel(BasePLModel):
                 lnorm_loss = lnorm_loss.flatten(1).sum(1).mean() * self.lambdas.lnorm
                 abs_dist = (pred_midreps[task] - tgt_midreps[task]).abs()
                 abs_dist = abs_dist.mean(1).flatten(1)
-                acc_at_0025 = (
-                    ((abs_dist <= 0.025).sum(1).float() / abs_dist.size(1))
-                    .float()
-                    .mean()
-                )
-                acc_at_005 = (
-                    ((abs_dist <= 0.05).sum(1).float() / abs_dist.size(1))
-                    .float()
-                    .mean()
-                )
-                acc_at_01 = (
-                    ((abs_dist <= 0.1).sum(1).float() / abs_dist.size(1)).float().mean()
-                )
                 losses[task] = {
                     "loss": lnorm_loss,
                     "lnorm": lnorm_loss,
                 }
+                acc_levels = [0.01, 0.025, 0.05]
                 stats[task] = {
-                    "acc_0.025": acc_at_0025,
-                    "acc_0.05": acc_at_005,
-                    "acc_0.1": acc_at_01,
+                    f"acc_{acc_l}": get_acc_at(abs_dist, acc_l).mean() for acc_l in acc_levels
                 }
-                if self.discriminators:
-                    disc_inp = torch.cat([tgt_img, pred_midreps[task]], 1)
-                    disc_inp += torch.empty_like(disc_inp).normal_(0, 0.01)
-                    disc_pred = self.discriminators._modules[task](disc_inp)
-                    gen_loss = bce_fill(disc_pred, 1)
-                    gen_loss = gen_loss.mean() * self.lambdas.adv
-                    losses[task]["loss"] += gen_loss
-                    losses[task]["g"] = gen_loss
 
             total_loss = 0.0
             for task, loss in losses.items():
@@ -287,7 +262,7 @@ class PLModel(BasePLModel):
                 for lname, lval in loss.items():
                     if lname != "loss":
                         tqdm_dict[f"{task}_{lname}"] = lval
-                tqdm_dict[f"{task}_acc_0.1"] = stats[task]["acc_0.1"]
+                tqdm_dict[f"{task}_acc_0.01"] = stats[task]["acc_0.01"]
 
             log = {**tqdm_dict}
             for task, _stats in stats.items():
@@ -301,7 +276,6 @@ class PLModel(BasePLModel):
 
         elif optimizer_idx == 1:
             pred_midreps = self.stored_fake_batch
-            tgt_img, tgt_midreps = batch
             losses = {}
             for task_name, disc in self.discriminators._modules.items():
                 real_inp = torch.cat([tgt_img, tgt_midreps[task_name]], 1)
