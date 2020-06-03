@@ -84,7 +84,7 @@ __C.model.discriminator.use = (
     edict(type=lambda x: bool(parsing.strtobool(x)),),
 )
 __C.model.discriminator.kwargs = edict(
-    out_nc=512,
+    out_nc=256,
 
     # input_nc=6,
     # ndf=64,
