@@ -190,8 +190,8 @@ class PLModel(BasePLModel):
 
         if batch_nb == 0:
             num_samples = min(tgt_img.size(0), 32)
-            if ((0 > tgt_img).any() or (tgt_img > 1).any()):
-                print('Tgt img out of range')
+            if (0 > tgt_img).any() or (tgt_img > 1).any():
+                print("Tgt img out of range")
             img1 = make_grid(tgt_img[:num_samples], nrow=1).permute(1, 2, 0).cpu()
             img2 = make_grid(tgt_midreps["depths"][:num_samples], nrow=1)[0].cpu()
             img3 = make_grid(pred_midreps["depths"][:num_samples], nrow=1)[0].cpu()
@@ -225,9 +225,9 @@ class PLModel(BasePLModel):
                 else:
                     pred_img = pred_img.permute(1, 2, 0)
 
-                if ((0 > gt_img).any() or (gt_img > 1).any()):
+                if (0 > gt_img).any() or (gt_img > 1).any():
                     print(f"gt img {task_name} out of range")
-                if ((0 > pred_img).any() or (pred_img > 1).any()):
+                if (0 > pred_img).any() or (pred_img > 1).any():
                     print(f"pred img {task_name} out of range")
 
                 gt_ax.imshow(gt_img, cmap="viridis")
@@ -300,6 +300,7 @@ class PLModel(BasePLModel):
             losses = {}
             stats = {}
             for task_name in self.cfg.tasks:
+                losses[task_name] = {"loss": 0.0}
                 if self.discriminators:
                     disc = self.discriminators[task_name]
                     real_inp = torch.cat([tgt_img, tgt_midreps[task_name]], 1)
@@ -310,18 +311,27 @@ class PLModel(BasePLModel):
 
                     lnorm_loss = self.lnorm(fake_feats, real_feats)
                     lnorm_loss = lnorm_loss.flatten(1).sum(1).mean()
-                else:
-                    lnorm_loss = self.lnorm(pred_midreps[task_name], tgt_midreps[task_name])
-                    lnorm_loss = lnorm_loss.flatten(1).sum(1).mean() * self.lambdas.lnorm
-                
+
+                    losses[task_name]["learned_lnorm"] = lnorm_loss
+                    losses[task_name]["loss"] = lnorm_loss
+
+                pix_lnorm_loss = self.lnorm(
+                    pred_midreps[task_name], tgt_midreps[task_name]
+                )
+                pix_lnorm_loss = pix_lnorm_loss.flatten(1).sum(1).mean()
+                losses[task_name]["pix_lnorm"] = pix_lnorm_loss
+                losses[task_name]["loss"] = (
+                    losses[task_name]["loss"] + 0.1 * pix_lnorm_loss
+                )
+
                 abs_dist = (pred_midreps[task_name] - tgt_midreps[task_name]).abs()
                 abs_dist = abs_dist.mean(1).flatten(1)
-                losses[task] = {
-                    "loss": lnorm_loss,
-                    "lnorm": lnorm_loss,
-                }
+                # losses[task_name] = {
+                #     "loss": lnorm_loss,
+                #     "lnorm": lnorm_loss,
+                # }
                 acc_levels = [0.01, 0.025, 0.05]
-                stats[task] = {
+                stats[task_name] = {
                     f"acc_{acc_l}": get_acc_at(abs_dist, acc_l).mean()
                     for acc_l in acc_levels
                 }
