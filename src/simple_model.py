@@ -299,10 +299,22 @@ class PLModel(BasePLModel):
             _, pred_midreps = self(tgt_img)
             losses = {}
             stats = {}
-            for task in self.cfg.tasks:
-                lnorm_loss = self.lnorm(pred_midreps[task], tgt_midreps[task])
-                lnorm_loss = lnorm_loss.flatten(1).sum(1).mean() * self.lambdas.lnorm
-                abs_dist = (pred_midreps[task] - tgt_midreps[task]).abs()
+            for task_name in self.cfg.tasks:
+                if self.discriminators:
+                    disc = self.discriminators[task_name]
+                    real_inp = torch.cat([tgt_img, tgt_midreps[task_name]], 1)
+                    real_feats = disc.first_conv(real_inp)
+
+                    fake_inp = torch.cat([tgt_img, pred_midreps[task_name]], 1)
+                    fake_feats = disc.first_conv(fake_inp)
+
+                    lnorm_loss = self.lnorm(fake_feats, real_feats)
+                    lnorm_loss = lnorm_loss.flatten(1).sum(1).mean()
+                else:
+                    lnorm_loss = self.lnorm(pred_midreps[task_name], tgt_midreps[task_name])
+                    lnorm_loss = lnorm_loss.flatten(1).sum(1).mean() * self.lambdas.lnorm
+                
+                abs_dist = (pred_midreps[task_name] - tgt_midreps[task_name]).abs()
                 abs_dist = abs_dist.mean(1).flatten(1)
                 losses[task] = {
                     "loss": lnorm_loss,
@@ -314,15 +326,15 @@ class PLModel(BasePLModel):
                     for acc_l in acc_levels
                 }
 
-            if self.discriminators:
-                for task_name, d in self.discriminators.items():
-                    disc_inp = torch.cat([tgt_img, pred_midreps[task_name]], 1)
-                    disc_inp += torch.empty_like(disc_inp).normal_(0, 0.01)
-                    disc_pred = d(disc_inp)
-                    gen_loss = bce_fill(disc_pred, 1).mean()
-                    losses[task]["g"] = gen_loss
-                    if gen_loss >= 0.05 and getattr(self, "d_loss", 0.0) <= 1.5:
-                        losses[task]["loss"] += gen_loss * self.lambdas.adv
+            # if self.discriminators:
+            #     for task_name, d in self.discriminators.items():
+            #         disc_inp = torch.cat([tgt_img, pred_midreps[task_name]], 1)
+            #         disc_inp += torch.empty_like(disc_inp).normal_(0, 0.01)
+            #         disc_pred = d(disc_inp)
+            #         gen_loss = bce_fill(disc_pred, 1).mean()
+            #         losses[task]["g"] = gen_loss
+            #         if gen_loss >= 0.05 and getattr(self, "d_loss", 0.0) <= 1.5:
+            #             losses[task]["loss"] += gen_loss * self.lambdas.adv
 
             total_loss = 0.0
             for task, loss in losses.items():
@@ -350,12 +362,12 @@ class PLModel(BasePLModel):
             losses = {}
             for task_name, disc in self.discriminators.items():
                 real_inp = torch.cat([tgt_img, tgt_midreps[task_name]], 1)
-                real_inp += torch.empty_like(real_inp).normal_(0, 0.01)
-                real2real = disc(real_inp)
+                # real_inp += torch.empty_like(real_inp).normal_(0, 0.01)
+                _, real2real = disc(real_inp)
 
                 fake_inp = torch.cat([tgt_img, pred_midreps[task_name]], 1)
-                fake_inp += torch.empty_like(fake_inp).normal_(0, 0.01)
-                fake2real = disc(fake_inp)
+                # fake_inp += torch.empty_like(fake_inp).normal_(0, 0.01)
+                _, fake2real = disc(fake_inp)
 
                 disc_loss = (
                     bce_fill(real2real, 1).mean() + bce_fill(fake2real, 0).mean()
@@ -365,8 +377,8 @@ class PLModel(BasePLModel):
 
             total_loss = torch.tensor(0.0, requires_grad=True, device=tgt_img.device)
             for task, loss in losses.items():
-                if loss >= 0.2:
-                    total_loss = total_loss + loss * self.lambdas[task]
+                # if loss >= 0.2:
+                total_loss = total_loss + loss * self.lambdas[task]
 
             self.d_loss = total_loss.detach()
 

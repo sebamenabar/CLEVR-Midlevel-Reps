@@ -34,11 +34,12 @@ class RNDiscriminator(nn.Module):
     def __init__(self, in_nc=4, out_nc=512):
         super().__init__()
         nc = out_nc // (2 ** 5)
-        layers = [
+        self.first_conv = nn.Sequential(
             nn.Conv2d(in_nc, nc, 4, 2, 0, bias=False),
             nn.BatchNorm2d(nc),
             nn.LeakyReLU(0.2),
-        ]
+        )
+        layers = []
         for i in range(1, 4):
             layers += [
                 nn.Conv2d(nc, nc * 2, 4, 2, 0, bias=False),
@@ -59,7 +60,8 @@ class RNDiscriminator(nn.Module):
     def forward(self, x):
         # x is in range [0, 1]
         x = (x * 2) - 1
-        return self.layers(x)
+        first_feats = self.first_conv(x)
+        return first_feats, self.layers(first_feats)
 
 
 class RNDecoder(nn.Module):

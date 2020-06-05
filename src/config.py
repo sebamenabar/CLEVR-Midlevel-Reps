@@ -30,7 +30,7 @@ __C.train.bsz[0] = 64
 __C.train.val_bsz[0] = 64
 __C.train.lrs = edict()
 __C.train.lrs.default = (1e-4, edict(type=float))
-__C.train.lrs.discriminator = (1e-5, edict(type=float))
+__C.train.lrs.discriminator = (1e-4, edict(type=float))
 if torch.cuda.is_available():
     __C.num_workers[0] = 8
 else:
