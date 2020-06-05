@@ -25,7 +25,7 @@ else:
         "/Users/sebamenabar/Documents/datasets/tmp/CLEVR_Uni_v1.2",
         edict(type=str),
     )
-__C.train.epochs = 15
+__C.train.epochs[0] = 15
 __C.train.bsz[0] = 64
 __C.train.val_bsz[0] = 64
 __C.train.lrs = edict()
@@ -41,8 +41,8 @@ __C.train.lnorm = ("smooth_l1", edict(choices=["l1", "l2", "smooth_l1"], type=st
 __C.train.weight_decay = edict()
 __C.train.weight_decay.default = 2e-6
 __C.train.weight_decay.discriminator = 10 * __C.train.weight_decay.default
-__C.train.lnorm_mult = 0.996
-__C.train.adv_mult = 0.004
+__C.train.lnorm_mult = (0.996, edict(type=float))
+__C.train.adv_mult = (0.004, edict(type=float))
 __C.train.task_lambdas = edict()
 __C.train.task_lambdas.depths = 1
 __C.train.task_lambdas.normals = 1

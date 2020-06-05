@@ -85,15 +85,17 @@ class PLModel(BasePLModel):
 
         encoder_decoder_opt = make_opt(encoder_decoder_params, "encoder_decoder")
         encoder_decoder_sch = torch.optim.lr_scheduler.MultiStepLR(
-            encoder_decoder_opt, milestones=[5, 10], gamma=0.1,
+            encoder_decoder_opt, milestones=[10, 20], gamma=0.1,
         )
         if self.discriminators:
             discriminator_opt = make_opt(
                 self.discriminators.parameters(), "discriminator"
             )
-            return [encoder_decoder_opt, discriminator_opt], [encoder_decoder_sch]
+            # return [encoder_decoder_opt, discriminator_opt], [encoder_decoder_sch]
+            return [encoder_decoder_opt, discriminator_opt]
 
-        return [encoder_decoder_opt], [encoder_decoder_sch]
+        # return [encoder_decoder_opt], [encoder_decoder_sch]
+        return [encoder_decoder_opt]
 
     def prepare_data(self):
         self.orig_train_dataset = CLEVRMidrepsDataset(
@@ -188,6 +190,8 @@ class PLModel(BasePLModel):
 
         if batch_nb == 0:
             num_samples = min(tgt_img.size(0), 32)
+            if ((0 > tgt_img).any() or (tgt_img > 1).any()):
+                print('Tgt img out of range')
             img1 = make_grid(tgt_img[:num_samples], nrow=1).permute(1, 2, 0).cpu()
             img2 = make_grid(tgt_midreps["depths"][:num_samples], nrow=1)[0].cpu()
             img3 = make_grid(pred_midreps["depths"][:num_samples], nrow=1)[0].cpu()
@@ -220,6 +224,11 @@ class PLModel(BasePLModel):
                     pred_img = pred_img.squeeze(0)
                 else:
                     pred_img = pred_img.permute(1, 2, 0)
+
+                if ((0 > gt_img).any() or (gt_img > 1).any()):
+                    print(f"gt img {task_name} out of range")
+                if ((0 > pred_img).any() or (pred_img > 1).any()):
+                    print(f"pred img {task_name} out of range")
 
                 gt_ax.imshow(gt_img, cmap="viridis")
                 pred_ax.imshow(pred_img, cmap="viridis")
@@ -265,6 +274,7 @@ class PLModel(BasePLModel):
         aggregate_acc(outputs[1], "uni")
 
         stats = flatten_json_iterative_solution(stats)
+        stats["Epoch"] = self.current_epoch
 
         self.print()
         self.print(f"Epoch: {self.current_epoch}")
@@ -353,7 +363,7 @@ class PLModel(BasePLModel):
                 disc_loss = disc_loss * 0.5
                 losses[task_name] = disc_loss
 
-            total_loss = torch.tensor(0.0, requires_grad=True)
+            total_loss = torch.tensor(0.0, requires_grad=True, device=tgt_img.device)
             for task, loss in losses.items():
                 if loss >= 0.2:
                     total_loss = total_loss + loss * self.lambdas[task]
