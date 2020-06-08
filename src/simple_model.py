@@ -219,8 +219,9 @@ class PLModel(BasePLModel):
                 for acc_l in acc_levels:
                     stats["acc"][task][zone][acc_l] = get_acc_at(dist, acc_l)
 
-        fig = plot_midreps(tgt_img, tgt_midreps, pred_midreps, num_samples=32)
-        self.log_figure(fig, f"{prefix}_validation", self.global_step)
+        if batch_nb == 0:
+            fig = plot_midreps(tgt_img, tgt_midreps, pred_midreps, num_samples=32)
+            self.log_figure(fig, f"{prefix}_validation", self.global_step)
 
         return stats
 
