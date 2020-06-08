@@ -104,17 +104,20 @@ class PLModel(BasePLModel):
 
         encoder_decoder_opt = make_opt(encoder_decoder_params, "encoder_decoder")
         encoder_decoder_sch = torch.optim.lr_scheduler.MultiStepLR(
-            encoder_decoder_opt, milestones=[10, 20], gamma=0.1,
+            encoder_decoder_opt, milestones=[10, 30], gamma=0.1,
         )
         if self.discriminators:
             discriminator_opt = make_opt(
                 self.discriminators.parameters(), "discriminator"
             )
-            # return [encoder_decoder_opt, discriminator_opt], [encoder_decoder_sch]
-            return [encoder_decoder_opt, discriminator_opt]
+            discriminator_sch = torch.optim.lr_scheduler.MultiStepLR(
+                discriminator_opt, milestones=[10, 30], gamma=0.1,
+            )
+            return [encoder_decoder_opt, discriminator_opt], [encoder_decoder_sch, discriminator_sch]
+            # return [encoder_decoder_opt, discriminator_opt]
 
-        # return [encoder_decoder_opt], [encoder_decoder_sch]
-        return [encoder_decoder_opt]
+        return [encoder_decoder_opt], [encoder_decoder_sch]
+        # return [encoder_decoder_opt]
 
     def prepare_data(self):
         self.orig_train_dataset = CLEVRMidrepsDataset(
@@ -150,8 +153,12 @@ class PLModel(BasePLModel):
         )
 
     def train_dataloader(self):
+        if self.cfg.train.dataset == "orig":
+            dataset = self.orig_train_dataset
+        elif self.cfg.train.dataset == "uni":
+            dataset = self.uni_train_dataset
         return DataLoader(
-            self.orig_train_dataset,
+            dataset,
             shuffle=True,
             drop_last=True,
             batch_size=self.cfg.train.bsz,

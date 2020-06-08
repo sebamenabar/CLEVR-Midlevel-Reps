@@ -48,6 +48,7 @@ __C.train.task_lambdas.depths = 1
 __C.train.task_lambdas.normals = 1
 __C.train.task_lambdas.autoencoder = 1
 __C.train.adv_skip = (True, edict(type=lambda x: bool(parsing.strtobool(x))))
+__C.train.dataset = ("orig", edict(type=str, choices=["orig", "uni"]))
 
 # Model args
 __C.model = edict()
