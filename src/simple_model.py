@@ -228,8 +228,6 @@ class PLModel(BasePLModel):
         # stats = {"orig": {"lnorm": {}, "acc": {}}, "uni": {"lnorm": {}, "acc": {}}}
         stats = {}
 
-        print(outputs)
-
         def aggregate_lnorm(output_list, prefix):
             for task_name in output_list[0]["lnorm"].keys():
                 # stats[prefix]["lnorm"][task_name] = torch.cat(
