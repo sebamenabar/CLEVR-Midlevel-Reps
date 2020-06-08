@@ -215,7 +215,7 @@ class PLModel(BasePLModel):
 
             acc_levels = [0.01, 0.025, 0.05]
             stats["acc"][task] = {'in': {}, 'out': {}}
-            for (zone, dist) in [('in', abs_dist_in_orig), ('out'), abs_dist_out_orig]:
+            for (zone, dist) in [('in', abs_dist_in_orig), ('out', abs_dist_out_orig)]:
                 for acc_l in acc_levels:
                     stats["acc"][task][zone][acc_l] = get_acc_at(dist, acc_l)
 
@@ -228,6 +228,8 @@ class PLModel(BasePLModel):
         # stats = {"orig": {"lnorm": {}, "acc": {}}, "uni": {"lnorm": {}, "acc": {}}}
         stats = {}
 
+        print(outputs)
+
         def aggregate_lnorm(output_list, prefix):
             for task_name in output_list[0]["lnorm"].keys():
                 # stats[prefix]["lnorm"][task_name] = torch.cat(
@@ -239,14 +241,15 @@ class PLModel(BasePLModel):
 
         def aggregate_acc(output_list, prefix):
             for task_name in output_list[0]["acc"].keys():
-                # stats[prefix]["acc"][task_name] = {}
-                for acc_l in output_list[0]["acc"][task_name].keys():
-                    # stats[prefix]["acc"][task_name][acc_l] = torch.cat(
-                    stats[f"val_{prefix}_acc_{task_name}_{acc_l}"] = (
-                        torch.cat([o["acc"][task_name][acc_l] for o in output_list])
-                        .mean()
-                        .item()
-                    )
+                for zone in ['in', 'out']:
+                    # stats[prefix]["acc"][task_name] = {}
+                    for acc_l in output_list[0]["acc"][task_name][zone].keys():
+                        # stats[prefix]["acc"][task_name][acc_l] = torch.cat(
+                        stats[f"val_{prefix}_acc_{task_name}_{zone}_{acc_l}"] = (
+                            torch.cat([o["acc"][task_name][zone][acc_l] for o in output_list])
+                            .mean()
+                            .item()
+                        )
 
         aggregate_lnorm(outputs[0], "orig")
         aggregate_lnorm(outputs[1], "uni")

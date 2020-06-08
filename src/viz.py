@@ -44,8 +44,8 @@ def plot_midreps(img, tgt_midreps, pred_midreps, num_samples=32):
             pred_img = pred_img.squeeze(1)
         elif task_tgt_midreps.size(1) == 3:
             colorbar = False
-            gt_img = gt_img.permute(1, 2, 0)
-            pred_img = pred_img.permute(1, 2, 0)
+            gt_img = gt_img.permute(0, 2, 3, 1)
+            pred_img = pred_img.permute(0, 2, 3, 1)
 
         if (0 > gt_img).any() or (gt_img > 1).any():
             print(f"gt img {task_name} out of range")

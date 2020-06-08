@@ -25,7 +25,7 @@ else:
         "/Users/sebamenabar/Documents/datasets/tmp/CLEVR_Uni_v1.2",
         edict(type=str),
     )
-__C.train.epochs[0] = 15
+__C.train.epochs[0] = 40
 __C.train.bsz[0] = 64
 __C.train.val_bsz[0] = 64
 __C.train.lrs = edict()
