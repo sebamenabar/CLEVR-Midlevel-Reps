@@ -1,11 +1,15 @@
+import os.path as osp
+
 from easydict import EasyDict as edict
 from pprint import PrettyPrinter as PP
 
-import torch
-import torch.nn as nn
+import numpy as np
+from skimage.transform import resize
 
 import matplotlib.pyplot as plt
 
+import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid
 
@@ -15,12 +19,16 @@ from backbones import RNEncoder, RNDecoder, RNDiscriminator
 from base_pl_model import BasePLModel
 from utils import task_to_out_nc, get_acc_at
 from losses import bce_fill
+from viz import plot_midreps
 
 pp = PP(indent=4)
 
 
 class PLModel(BasePLModel):
-    def __init__(self, cfg=None):
+    def __init__(self, cfg=None, hparams=None):
+        if cfg is None and hparams is not None:
+            cfg = hparams
+
         if not isinstance(cfg.tasks, list):
             cfg.tasks = [cfg.tasks]
 
@@ -62,6 +70,17 @@ class PLModel(BasePLModel):
 
         print("Multitask weights:")
         print(self.lambdas)
+
+        self.load_orig_mask()
+
+    def load_orig_mask(self, fp=None):
+        if fp is None:
+            fp = osp.join(self.work_dir, "data/clevr_orig_train_accum_pixels.npy")
+        accum_pixels = np.load(fp)
+        resized_accumulated_pixels = (
+            resize((accum_pixels != 0).astype(float), (224, 224)) >= 0.9
+        )
+        self.orig_pix_index = index = torch.from_numpy(resized_accumulated_pixels).flatten()
 
     def forward(self, img):
         features = self.encoder(img)
@@ -176,71 +195,25 @@ class PLModel(BasePLModel):
             "lnorm": {},
             "acc": {},
         }
+
         for task in self.cfg.tasks:
             lnorm = self.lnorm(pred_midreps[task], tgt_midreps[task]).flatten(1).sum(1)
             abs_dist = (pred_midreps[task] - tgt_midreps[task]).abs()
             abs_dist = abs_dist.mean(1).flatten(1)
 
+            abs_dist_in_orig = abs_dist[:, self.orig_pix_index]
+            abs_dist_out_orig = abs_dist[:, ~self.orig_pix_index]
+
             stats["lnorm"][task] = lnorm
 
             acc_levels = [0.01, 0.025, 0.05]
-            stats["acc"][task] = {}
-            for acc_l in acc_levels:
-                stats["acc"][task][acc_l] = get_acc_at(abs_dist, acc_l)
+            stats["acc"][task] = {'in': {}, 'out': {}}
+            for (zone, dist) in [('in', abs_dist_in_orig), ('out'), abs_dist_out_orig]:
+                for acc_l in acc_levels:
+                    stats["acc"][task][zone][acc_l] = get_acc_at(dist, acc_l)
 
-        if batch_nb == 0:
-            num_samples = min(tgt_img.size(0), 32)
-            if (0 > tgt_img).any() or (tgt_img > 1).any():
-                print("Tgt img out of range")
-            img1 = make_grid(tgt_img[:num_samples], nrow=1).permute(1, 2, 0).cpu()
-            img2 = make_grid(tgt_midreps["depths"][:num_samples], nrow=1)[0].cpu()
-            img3 = make_grid(pred_midreps["depths"][:num_samples], nrow=1)[0].cpu()
-
-            fig, axes = plt.subplots(
-                nrows=1,
-                ncols=1 + 2 * len(pred_midreps),
-                figsize=(6 * (1 + 2 * len(pred_midreps)), 6 * num_samples),
-            )
-
-            img_ax = axes[0]
-            img = make_grid(tgt_img[:num_samples], nrow=1).permute(1, 2, 0).cpu()
-            img_ax.imshow(img)
-            img_ax.set_title("Input image", fontsize=30)
-            img_ax.axis("off")
-
-            for i, task_name in enumerate(pred_midreps.keys()):
-                gt_ax = axes[i * 2 + 1]
-                pred_ax = axes[i * 2 + 2]
-
-                gt_img = make_grid(tgt_midreps[task_name][:num_samples], nrow=1).cpu()
-                if gt_img.size(0) == 1:
-                    gt_img = gt_img.squeeze(0)
-                else:
-                    gt_img = gt_img.permute(1, 2, 0)
-                pred_img = make_grid(
-                    pred_midreps[task_name][:num_samples], nrow=1
-                ).cpu()
-                if pred_img.size(0) == 1:
-                    pred_img = pred_img.squeeze(0)
-                else:
-                    pred_img = pred_img.permute(1, 2, 0)
-
-                if (0 > gt_img).any() or (gt_img > 1).any():
-                    print(f"gt img {task_name} out of range")
-                if (0 > pred_img).any() or (pred_img > 1).any():
-                    print(f"pred img {task_name} out of range")
-
-                gt_ax.imshow(gt_img, cmap="viridis")
-                pred_ax.imshow(pred_img, cmap="viridis")
-
-                gt_ax.set_title(f"Real {task_name}", fontsize=30)
-                pred_ax.set_title(f"Predicted {task_name}", fontsize=30)
-                gt_ax.axis("off")
-                pred_ax.axis("off")
-
-            plt.subplots_adjust(wspace=0.01)
-            plt.axis("off")
-            self.log_figure(fig, f"{prefix}_validation", self.global_step)
+        fig = plot_midreps(tgt_img, tgt_midreps, pred_midreps, num_samples=32)
+        self.log_figure(fig, f"{prefix}_validation", self.global_step)
 
         return stats
 
@@ -281,12 +254,7 @@ class PLModel(BasePLModel):
         self.print(pp.pformat(stats))
 
         return {
-            # "progress_bar": {
-            #     "val_depths_lnorm": stats["val_depths_lnorm"],
-            #     "val_depths_acc_0.1": stats["val_depths_acc_0.1"],
-            # },
             "log": stats,
-            # "val_depths_acc_0.025": stats["orig"]["acc"],
         }
 
     def training_step(self, batch, batch_nb, optimizer_idx=None):

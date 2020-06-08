@@ -4,7 +4,7 @@ __pycache__/
 .env
 *.ipynb_checkpoints
 slurm/*
-data/*
+#data/*
 checkpoints/*
 experiments/*
 *.err
