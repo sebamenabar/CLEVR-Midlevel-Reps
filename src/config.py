@@ -25,22 +25,22 @@ else:
         "/Users/sebamenabar/Documents/datasets/tmp/CLEVR_Uni_v1.2",
         edict(type=str),
     )
-__C.train.epochs[0] = 40
+__C.train.epochs[0] = 50
 __C.train.bsz[0] = 64
 __C.train.val_bsz[0] = 64
 __C.train.lrs = edict()
 __C.train.lrs.default = (1e-4, edict(type=float))
-__C.train.lrs.discriminator = (1e-4, edict(type=float))
+# __C.train.lrs.discriminator = (1e-4, edict(type=float))
 if torch.cuda.is_available():
-    __C.num_workers[0] = 8
+    __C.num_workers[0] = 4
 else:
     __C.num_workers[0] = 4
 
 # Add custom arguments
 __C.train.lnorm = ("smooth_l1", edict(choices=["l1", "l2", "smooth_l1"], type=str))
-__C.train.weight_decay = edict()
-__C.train.weight_decay.default = 2e-6
-__C.train.weight_decay.discriminator = 10 * __C.train.weight_decay.default
+# __C.train.weight_decay = edict()
+# __C.train.weight_decay.default = 2e-6
+# __C.train.weight_decay.discriminator = 10 * __C.train.weight_decay.default
 __C.train.lnorm_mult = (0.996, edict(type=float))
 __C.train.adv_mult = (0.004, edict(type=float))
 __C.train.task_lambdas = edict()

@@ -1,4 +1,5 @@
 import os
+import os.path as osp
 import glob
 import Imath
 import numpy as np
@@ -17,6 +18,7 @@ from torch.utils import data
 import OpenEXR as exr
 import Imath
 from skimage.transform import resize
+import h5py
 
 
 def readEXR(filename):
@@ -151,3 +153,55 @@ class CLEVRMidrepsDataset(data.Dataset):
 
     def __len__(self):
         return len(self.files)
+
+
+class CLEVRMidrepsH5py(Dataset):
+    def __init__(
+        self, base_dir, tasks, split="train", resize=(224, 224),
+    ):
+        self.base_dir = base_dir
+        tasks = tasks[:]
+        if "autoencoder" in tasks:
+            tasks.remove("autoencoder")
+        self.tasks = tasks
+        self.split = split
+        self.resize = resize
+
+        if split == "train":
+            self.__len = 70000
+        elif split == "val":
+            self.__len = 15000
+
+        self.datasets = {}
+
+    def __len__(self):
+        return self.__len
+
+    def __getitem__(self, index):
+        img = self.get_img(index)
+        if self.resize:
+            img = T.functional.resize(img, self.resize)
+        img = T.functional.to_tensor(img)
+
+        midreps = {}
+        for task in self.tasks:
+            if task not in self.datasets:
+                self.datasets[task] = h5py.File(
+                    osp.join(self.base_dir, task, f"{self.split}_{task}.hdf5"), "r"
+                )[task]
+                # print(f"Opened {task} dataset")
+            midrep = self.datasets[task][index]
+            if self.resize:
+                midrep = resize(midrep, self.resize, preserve_range=True)
+            midrep = torch.from_numpy(midrep).permute(2, 0, 1)
+            if task == "depths":
+                midrep = midrep / 40
+            midreps[task] = midrep
+
+        return img, midreps
+
+    def get_img(self, index):
+        fp = osp.join(
+            self.base_dir, "images", self.split, f"CLEVR_{self.split}_{index:06d}.png"
+        )
+        return Image.open(fp).convert("RGB")

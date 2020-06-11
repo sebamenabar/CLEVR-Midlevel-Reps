@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from torchvision.utils import make_grid
 
 from base_config import flatten_json_iterative_solution
-from data import CLEVRMidrepsDataset
+from data import CLEVRMidrepsDataset, CLEVRMidrepsH5py
 from backbones import RNEncoder, RNDecoder, RNDiscriminator
 from base_pl_model import BasePLModel
 from utils import task_to_out_nc, get_acc_at
@@ -95,23 +95,23 @@ class PLModel(BasePLModel):
             return torch.optim.Adam(
                 parameters,
                 lr=getattr(self.cfg.train.lrs, name, self.cfg.train.lrs.default),
-                weight_decay=getattr(
-                    self.cfg.train.weight_decay,
-                    name,
-                    self.cfg.train.weight_decay.default,
-                ),
+                # weight_decay=getattr(
+                #     self.cfg.train.weight_decay,
+                #     name,
+                #     self.cfg.train.weight_decay.default,
+                # ),
             )
 
         encoder_decoder_opt = make_opt(encoder_decoder_params, "encoder_decoder")
         encoder_decoder_sch = torch.optim.lr_scheduler.MultiStepLR(
-            encoder_decoder_opt, milestones=[10, 30], gamma=0.1,
+            encoder_decoder_opt, milestones=[40], gamma=0.1,
         )
         if self.discriminators:
             discriminator_opt = make_opt(
                 self.discriminators.parameters(), "discriminator"
             )
             discriminator_sch = torch.optim.lr_scheduler.MultiStepLR(
-                discriminator_opt, milestones=[10, 30], gamma=0.1,
+                discriminator_opt, milestones=[40], gamma=0.1,
             )
             return [encoder_decoder_opt, discriminator_opt], [encoder_decoder_sch, discriminator_sch]
             # return [encoder_decoder_opt, discriminator_opt]
@@ -120,36 +120,32 @@ class PLModel(BasePLModel):
         # return [encoder_decoder_opt]
 
     def prepare_data(self):
-        self.orig_train_dataset = CLEVRMidrepsDataset(
+        self.orig_train_dataset = CLEVRMidrepsH5py(
             base_dir=self.cfg.orig_dir,
             split="train",
-            midreps=self.cfg.tasks,
-            transform=CLEVRMidrepsDataset.std_img_transform,
-            midreps_transform=CLEVRMidrepsDataset.std_midreps_transforms,
+            tasks=self.cfg.tasks,
+            resize=(224, 224),
         )
 
-        self.orig_val_dataset = CLEVRMidrepsDataset(
+        self.orig_val_dataset = CLEVRMidrepsH5py(
             base_dir=self.cfg.orig_dir,
             split="val",
-            midreps=self.cfg.tasks,
-            transform=CLEVRMidrepsDataset.std_img_transform,
-            midreps_transform=CLEVRMidrepsDataset.std_midreps_transforms,
+            tasks=self.cfg.tasks,
+            resize=(224, 224),
         )
 
-        self.uni_train_dataset = CLEVRMidrepsDataset(
+        self.uni_train_dataset = CLEVRMidrepsH5py(
             base_dir=self.cfg.uni_dir,
             split="train",
-            midreps=self.cfg.tasks,
-            transform=CLEVRMidrepsDataset.std_img_transform,
-            midreps_transform=CLEVRMidrepsDataset.std_midreps_transforms,
+            tasks=self.cfg.tasks,
+            resize=(224, 224),
         )
 
-        self.uni_val_dataset = CLEVRMidrepsDataset(
+        self.uni_val_dataset = CLEVRMidrepsH5py(
             base_dir=self.cfg.uni_dir,
             split="val",
-            midreps=self.cfg.tasks,
-            transform=CLEVRMidrepsDataset.std_img_transform,
-            midreps_transform=CLEVRMidrepsDataset.std_midreps_transforms,
+            tasks=self.cfg.tasks,
+            resize=(224, 224),
         )
 
     def train_dataloader(self):
